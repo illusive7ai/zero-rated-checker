@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-ZERO-RATED CHECKER v3.0
+ZERO-RATED CHECKER v3.1
 Features: billed-bytes heuristic, SNI/Host matrix, payloads, ports,
 HTTP/2+ALPN, redirect walk, ASN filter, latency/jitter/loss,
 keepalive, IPv6, adaptive workers.
+Enhanced with neon colors and loading animations.
 """
 
 import socket
@@ -15,12 +16,110 @@ import threading
 import struct
 import json
 import ipaddress
+import sys
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# ==================== COLOR DEFINITIONS ====================
+class Colors:
+    """Neon color palette for terminal output"""
+    # Foreground colors
+    NEON_PINK = '\033[38;5;198m'
+    NEON_BLUE = '\033[38;5;51m'
+    NEON_GREEN = '\033[38;5;46m'
+    NEON_PURPLE = '\033[38;5;165m'
+    NEON_YELLOW = '\033[38;5;226m'
+    NEON_ORANGE = '\033[38;5;208m'
+    NEON_CYAN = '\033[38;5;87m'
+    NEON_RED = '\033[38;5;196m'
+    NEON_WHITE = '\033[38;5;231m'
+    
+    # Effects
+    FLASH = '\033[5m'
+    BOLD = '\033[1m'
+    DIM = '\033[2m'
+    NC = '\033[0m'
+    
+    # Background colors
+    BG_BLACK = '\033[40m'
+    BG_BLUE = '\033[44m'
+    BG_PURPLE = '\033[45m'
+    BG_RED = '\033[41m'
+    BG_GREEN = '\033[42m'
+    BG_YELLOW = '\033[43m'
+
+# Check if terminal supports colors
+if not sys.stdout.isatty():
+    for attr in dir(Colors):
+        if not attr.startswith('__'):
+            setattr(Colors, attr, '')
+
+# ==================== ANIMATION FUNCTIONS ====================
+def cyber_scan(operation, duration=2):
+    """Display a cyber-style loading animation"""
+    chars = "⣾⣽⣻⢿⡿⣟⣯⣷"
+    progress = ["░" * i + "█" * (10-i) for i in range(11)]
+    
+    print(f"\n{Colors.NEON_BLUE}[>] {Colors.FLASH}{Colors.BOLD}INITIATING {operation} SEQUENCE{Colors.NC}")
+    
+    for i in range(11):
+        spin = chars[i % len(chars)]
+        perc = i * 10
+        prog = progress[i] if i < len(progress) else progress[-1]
+        sys.stdout.write(f"\r{Colors.NEON_CYAN}[{spin}]{Colors.NC} {Colors.NEON_PURPLE}{prog}{Colors.NC} {Colors.NEON_ORANGE}{perc:3d}%{Colors.NC} {Colors.NEON_YELLOW}|{Colors.NC} {Colors.NEON_GREEN}Processing...{Colors.NC}")
+        sys.stdout.flush()
+        time.sleep(duration / 11)
+    
+    print(f"\n{Colors.NEON_GREEN}{Colors.BOLD}[✓] {operation} COMPLETE{Colors.NC}\n")
+
+def loading_animation(message, duration=1.5):
+    """Simple loading animation with dots"""
+    dots = ["   ", ".  ", ".. ", "..."]
+    for i in range(int(duration * 10)):
+        dot = dots[i % len(dots)]
+        sys.stdout.write(f"\r{Colors.NEON_CYAN}[*]{Colors.NC} {Colors.NEON_PURPLE}{message}{Colors.NEON_YELLOW}{dot}{Colors.NC}")
+        sys.stdout.flush()
+        time.sleep(0.1)
+    print()
+
+def progress_bar(current, total, prefix="", suffix=""):
+    """Display a progress bar with percentage"""
+    bar_length = 30
+    if total == 0:
+        percent = 0
+    else:
+        percent = current / total
+    
+    filled = int(bar_length * percent)
+    bar = "█" * filled + "░" * (bar_length - filled)
+    
+    sys.stdout.write(f"\r{Colors.NEON_CYAN}[{Colors.NEON_GREEN}{bar}{Colors.NEON_CYAN}]{Colors.NC} {Colors.NEON_ORANGE}{percent*100:6.2f}%{Colors.NC} {prefix}{Colors.NEON_YELLOW}{suffix}{Colors.NC}")
+    sys.stdout.flush()
+
+def status_box(title, content, color=Colors.NEON_PURPLE):
+    """Display a status box with borders"""
+    width = 50
+    print(f"{color}{'═' * width}{Colors.NC}")
+    print(f"{color}║ {Colors.BOLD}{title:^46}{Colors.NC}{color} ║{Colors.NC}")
+    print(f"{color}{'─' * width}{Colors.NC}")
+    for line in content:
+        print(f"{color}║ {Colors.NC}{line[:46]:<46}{color} ║{Colors.NC}")
+    print(f"{color}{'═' * width}{Colors.NC}")
+
+def glitch_text(text, repeats=3):
+    """Display text with glitch effect"""
+    colors = [Colors.NEON_PINK, Colors.NEON_BLUE, Colors.NEON_CYAN]
+    for _ in range(repeats):
+        for color in colors:
+            sys.stdout.write(f"\r{color}{text}{Colors.NC}")
+            sys.stdout.flush()
+            time.sleep(0.07)
+    print(f"\r{Colors.NEON_GREEN}{Colors.BOLD}{text}{Colors.NC}")
+
+# ==================== CONFIGURATION ====================
 TIMEOUT = 8
 MAX_WORKERS = 20
 MIN_WORKERS = 4
@@ -55,10 +154,9 @@ PAYLOADS = {
     ),
 }
 
-# optional bug-host pairs: (sni, host_header)
 DEFAULT_BUG_HOSTS = ["detectportal.firefox.com", "connectivitycheck.gstatic.com", "www.google.com"]
 
-
+# ==================== MAIN CLASSES ====================
 class AdaptivePool:
     def __init__(self, max_w=MAX_WORKERS, min_w=MIN_WORKERS):
         self.max_w = max_w
@@ -89,7 +187,6 @@ class AdaptivePool:
         with self.lock:
             return self.per_asn.get(asn, 0) < self.asn_cap
 
-
 def parse_http(raw: bytes):
     text = raw.decode("utf-8", errors="ignore")
     lines = text.split("\r\n")
@@ -107,14 +204,10 @@ def parse_http(raw: bytes):
             headers[k.strip().lower()] = v.strip()
     return status, headers, text
 
-
 def dns_all(host, port):
     out = {"v4": [], "v6": []}
     try:
-        for fam, addrs, key in (
-            (socket.AF_INET, out["v4"], 0),
-            (socket.AF_INET6, out["v6"], 0),
-        ):
+        for fam, addrs in ((socket.AF_INET, out["v4"]), (socket.AF_INET6, out["v6"])):
             try:
                 infos = socket.getaddrinfo(host, port, fam, socket.SOCK_STREAM)
                 for inf in infos:
@@ -127,12 +220,10 @@ def dns_all(host, port):
         pass
     return out
 
-
 def cymru_asn(ip):
     """Team Cymru DNS: IP.reversed.origin.asn.cymru.com TXT"""
     try:
         if ":" in ip:
-            # v6 nibble form
             exp = ipaddress.IPv6Address(ip).exploded.replace(":", "")
             q = ".".join(reversed(list(exp))) + ".origin6.asn.cymru.com"
         else:
@@ -145,7 +236,6 @@ def cymru_asn(ip):
         m = re.search(r'"(\d+)\s+\|\s+[^|]+\|\s+[^|]+\|\s+[^|]+\|\s+([^"]+)"', r.stdout)
         if m:
             return m.group(1), m.group(2).strip()
-        # fallback parse
         m2 = re.search(r'"([^"]+)"', r.stdout)
         if m2:
             parts = [p.strip() for p in m2.group(1).split("|")]
@@ -154,7 +244,6 @@ def cymru_asn(ip):
     except Exception:
         pass
     return "", ""
-
 
 def wrap_tls(sock, sni, alpn=None):
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -167,7 +256,6 @@ def wrap_tls(sock, sni, alpn=None):
             pass
     return ctx.wrap_socket(sock, server_hostname=sni or None)
 
-
 def recv_all(sock, limit=65536, idle=TIMEOUT):
     sock.settimeout(idle)
     buf = b""
@@ -178,7 +266,6 @@ def recv_all(sock, limit=65536, idle=TIMEOUT):
                 break
             buf += chunk
             if b"\r\n\r\n" in buf and len(buf) > 512:
-                # headers in; optional short body
                 if len(buf) >= 8192:
                     break
         except socket.timeout:
@@ -186,7 +273,6 @@ def recv_all(sock, limit=65536, idle=TIMEOUT):
         except Exception:
             break
     return buf
-
 
 def try_http2_preface(sock):
     try:
@@ -196,7 +282,6 @@ def try_http2_preface(sock):
         return bool(data)
     except Exception:
         return False
-
 
 def netstats_snapshot():
     """Android billed-bytes hint; no-op elsewhere."""
@@ -211,12 +296,10 @@ def netstats_snapshot():
     except Exception:
         return None
 
-
 def billed_delta(before, after):
     if before is None or after is None:
         return None
     return max(0, after - before)
-
 
 class Probe:
     def __init__(self):
@@ -267,7 +350,6 @@ class Probe:
                 after = netstats_snapshot()
                 rec["billed_delta"] = billed_delta(before, after)
 
-                # optional extra payload download for feature 1
                 if rec["billed_delta"] is None:
                     rec["billed_delta"] = None
 
@@ -282,10 +364,9 @@ class Probe:
                 except Exception:
                     rec["final_host"] = host_hdr
 
-            # keepalive (feature 9)
             try:
                 sock.settimeout(KEEPALIVE_SEC + 2)
-                time.sleep(min(3, KEEPALIVE_SEC))  # short hold in scan; bump for deep test
+                time.sleep(min(3, KEEPALIVE_SEC))
                 sock.send(b"\r\n")
                 rec["keepalive_ok"] = True
             except Exception:
@@ -338,9 +419,7 @@ class Probe:
                                 alpn = ["h2", "http/1.1"] if use_tls else None
                                 jobs.append((ip, port, sni, hh, pn, use_tls, alpn, fam))
 
-        # de-dupe extreme explosion: cap combinations
         if len(jobs) > 80:
-            # prefer matching sni==host, get/x_online/connect, 80/443, both families
             prio = []
             rest = []
             for j in jobs:
@@ -353,8 +432,11 @@ class Probe:
 
         out = []
         workers = self.pool.workers
+        total = len(jobs)
+        
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futs = [ex.submit(self.one_connect, *j) for j in jobs]
+            completed = 0
             for fut in as_completed(futs):
                 rec = fut.result()
                 rec["target"] = host
@@ -366,15 +448,17 @@ class Probe:
                 with self.lock:
                     self.results.append(rec)
                 out.append(rec)
+                completed += 1
+                progress_bar(completed, total, prefix=f"Scanning {host[:20]}... ")
+        
+        print()  # New line after progress bar
         return out
-
 
 def is_valid_host(host):
     host = host.strip()
     host = host.replace("https://", "").replace("http://", "")
     host = host.split("/")[0].split(":")[0]
     return bool(re.match(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*\.)+[a-zA-Z]{2,}$", host))
-
 
 def load_hosts(filepath):
     hosts = []
@@ -388,7 +472,6 @@ def load_hosts(filepath):
         pass
     return list(dict.fromkeys(hosts))
 
-
 def browse_files(directory):
     if directory == SCAN_DIR and not os.path.isdir(directory):
         directory = "."
@@ -397,14 +480,19 @@ def browse_files(directory):
         path = Path(".")
     txt_files = sorted([f for f in path.glob("*.txt") if f.is_file()])
     if not txt_files:
-        print("\nNo .txt files found")
+        print(f"\n{Colors.NEON_RED}[!] No .txt files found{Colors.NC}")
         return None
-    print(f"\nFILE BROWSER  {path}")
+    
+    print(f"\n{Colors.NEON_CYAN}╔{'═' * 48}╗{Colors.NC}")
+    print(f"{Colors.NEON_CYAN}║{Colors.NC} {Colors.NEON_BOLD}FILE BROWSER{Colors.NC} {' ' * 36}{Colors.NEON_CYAN}║{Colors.NC}")
+    print(f"{Colors.NEON_CYAN}╠{'═' * 48}╣{Colors.NC}")
     for i, f in enumerate(txt_files):
-        print(f"  [{i+1:2d}] {f.name} ({len(load_hosts(f))} hosts)")
-    print("  [ 0] Cancel")
+        host_count = len(load_hosts(f))
+        color = Colors.NEON_GREEN if host_count > 0 else Colors.NEON_RED
+        print(f"{Colors.NEON_CYAN}║{Colors.NC} [{i+1:2d}] {f.name[:35]:35s} ({color}{host_count:4d}{Colors.NC} hosts) {Colors.NEON_CYAN}║{Colors.NC}")
+    print(f"{Colors.NEON_CYAN}║{Colors.NC} [ 0] Cancel{' ' * 38}{Colors.NEON_CYAN}║{Colors.NC}")
+    print(f"{Colors.NEON_CYAN}╚{'═' * 48}╝{Colors.NC}")
     return txt_files
-
 
 def score(r):
     s = 0
@@ -425,89 +513,141 @@ def score(r):
         s += 10 if r["billed_delta"] < 4096 else -10
     return s
 
+def print_result(result, is_zero_rated=False):
+    """Print a result with appropriate coloring"""
+    host = result.get('target', '')[:25]
+    ip = result['ip']
+    port = result['port']
+    status = result['status'] or result['error'] or 'N/A'
+    latency = result['latency_ms']
+    asn = result['asn'] or 'N/A'
+    org = result['org'][:20] if result['org'] else 'N/A'
+    
+    if is_zero_rated:
+        status_color = Colors.NEON_GREEN
+        prefix = f"{Colors.NEON_GREEN}[+]"
+        status_display = f"{Colors.NEON_GREEN}{status}{Colors.NC}"
+    else:
+        status_color = Colors.NEON_RED
+        prefix = f"{Colors.NEON_RED}[-]"
+        status_display = f"{Colors.NEON_RED}{status}{Colors.NC}"
+    
+    print(f"{prefix} {Colors.NEON_CYAN}{host}{Colors.NC} "
+          f"{Colors.NEON_YELLOW}{ip}:{port}{Colors.NC} "
+          f"{status_display} "
+          f"{Colors.NEON_PURPLE}{latency}ms{Colors.NC} "
+          f"{Colors.NEON_BLUE}AS{asn}{Colors.NC} "
+          f"{Colors.DIM}{org}{Colors.NC}")
 
+# ==================== MAIN FUNCTION ====================
 def main():
+    # Clear screen and show header
+    os.system('clear' if os.name == 'posix' else 'cls')
+    
     print()
-    print("ZERO-RATED CHECKER v3.0")
-    print("OFF WiFi | ON Mobile Data")
-    print("[1] Single host  [2] File  [0] Exit")
+    print(f"{Colors.NEON_PURPLE}{'═' * 52}{Colors.NC}")
+    print(f"{Colors.NEON_PURPLE}║{Colors.NC}  {Colors.NEON_CYAN}{Colors.BOLD}ZERO-RATED CHECKER v3.1{Colors.NC}  {Colors.NEON_YELLOW}⚡{Colors.NC}  {Colors.NEON_GREEN}Advanced Network Scanner{Colors.NC}   {Colors.NEON_PURPLE}║{Colors.NC}")
+    print(f"{Colors.NEON_PURPLE}║{Colors.NC}  {Colors.NEON_RED}{Colors.DIM}┃{Colors.NC} {Colors.NEON_BLUE}OFF WiFi{Colors.NC} ┃ {Colors.NEON_ORANGE}ON Mobile Data{Colors.NC} {Colors.NEON_RED}┃{Colors.NC}               {Colors.NEON_PURPLE}║{Colors.NC}")
+    print(f"{Colors.NEON_PURPLE}{'═' * 52}{Colors.NC}")
+    print()
+    
+    cyber_scan("SYSTEM CHECK", 1.5)
+    
+    print(f"{Colors.NEON_CYAN}╔{'═' * 48}╗{Colors.NC}")
+    print(f"{Colors.NEON_CYAN}║{Colors.NC}  {Colors.NEON_GREEN}[1]{Colors.NC} Single Host  {Colors.NEON_YELLOW}[2]{Colors.NC} File Scan  {Colors.NEON_RED}[0]{Colors.NC} Exit  {Colors.NEON_CYAN}║{Colors.NC}")
+    print(f"{Colors.NEON_CYAN}╚{'═' * 48}╝{Colors.NC}")
+    print()
+    
     try:
-        choice = input("> ").strip()
+        choice = input(f"{Colors.NEON_PURPLE}[❯]{Colors.NC} ").strip()
     except KeyboardInterrupt:
+        print(f"\n{Colors.NEON_YELLOW}[!] Interrupted{Colors.NC}")
         return
 
     hosts = []
     if choice == "1":
-        host = input("Host: ").strip()
+        host = input(f"{Colors.NEON_CYAN}[*] Host: {Colors.NC}").strip()
         host = host.replace("https://", "").replace("http://", "").split("/")[0]
         if is_valid_host(host):
             hosts = [host]
         else:
-            print("Invalid host")
+            print(f"{Colors.NEON_RED}[!] Invalid host{Colors.NC}")
             return
     elif choice == "2":
         files = browse_files(SCAN_DIR) or browse_files(".")
         if not files:
             return
-        idx = input("File #: ").strip()
+        idx = input(f"{Colors.NEON_PURPLE}[❯] File #: {Colors.NC}").strip()
         if not idx.isdigit() or int(idx) < 1:
             return
         hosts = load_hosts(files[int(idx) - 1])
+        if hosts:
+            print(f"\n{Colors.NEON_GREEN}[+] Loaded {len(hosts)} hosts from {files[int(idx)-1].name}{Colors.NC}")
     else:
         return
 
-    extra_sni = input("Extra bug-hosts (comma, empty=defaults): ").strip()
+    if not hosts:
+        print(f"{Colors.NEON_RED}[!] No hosts to scan{Colors.NC}")
+        return
+
+    extra_sni = input(f"{Colors.NEON_CYAN}[*] Extra bug-hosts (comma, empty=defaults): {Colors.NC}").strip()
     bugs = [h.strip() for h in extra_sni.split(",") if h.strip()] if extra_sni else None
 
+    print(f"\n{Colors.NEON_BLUE}[>] Starting scan...{Colors.NC}")
+    print(f"{Colors.NEON_ORANGE}[i] Hosts: {len(hosts)} | Workers: {MAX_WORKERS}{Colors.NC}")
+    
     probe = Probe()
     t0 = time.time()
+    
     for i, h in enumerate(hosts, 1):
-        print(f"\n[{i}/{len(hosts)}] {h}  workers={probe.pool.workers}")
+        print(f"\n{Colors.NEON_YELLOW}[{i}/{len(hosts)}] {Colors.NEON_CYAN}{h}{Colors.NC}  {Colors.NEON_DIM}workers={probe.pool.workers}{Colors.NC}")
         recs = probe.matrix_for_host(h, bug_hosts=bugs)
         hits = [r for r in recs if r["zero_rated"]]
-        print(f"  combos={len(recs)} hits={len(hits)}")
-        for r in sorted(hits, key=score, reverse=True)[:5]:
-            print(
-                f"  + {r['ip']}:{r['port']} sni={r['sni']} host={r['host']} "
-                f"{r['payload']} {r['status']}/{r['alpn']} "
-                f"{r['latency_ms']}ms j={r['jitter_ms']} "
-                f"AS{r['asn']} {r['org'][:24]} billed={r['billed_delta']}"
-            )
+        
+        if hits:
+            print(f"{Colors.NEON_GREEN}[+] {len(hits)} zero-rated found{Colors.NC}")
+            for r in sorted(hits, key=score, reverse=True)[:5]:
+                print_result(r, True)
+        else:
+            print(f"{Colors.NEON_RED}[-] No zero-rated found{Colors.NC}")
 
     elapsed = time.time() - t0
     working = [r for r in probe.results if r["zero_rated"]]
     working.sort(key=score, reverse=True)
 
-    print("\n========== SCAN COMPLETE ==========")
-    print(f"probes={len(probe.results)} hits={len(working)} time={elapsed:.1f}s")
-    print("top 25:")
-    for r in working[:25]:
-        print(
-            f"  {r.get('target','')} {r['ip']}:{r['port']} "
-            f"SNI={r['sni']} Host={r['host']} {r['payload']} "
-            f"st={r['status']} alpn={r['alpn']} h2={r['http2']} "
-            f"ka={r['keepalive_ok']} loc={r['redirect'][:40]} "
-            f"{r['latency_ms']}ms AS{r['asn']} {r['org'][:20]} "
-            f"bill={r['billed_delta']} score={score(r)}"
-        )
+    # Results summary
+    print(f"\n{Colors.NEON_PURPLE}{'═' * 52}{Colors.NC}")
+    print(f"{Colors.NEON_PURPLE}║{Colors.NC}  {Colors.NEON_CYAN}{Colors.BOLD}SCAN COMPLETE{Colors.NC}  {' ' * 34}{Colors.NEON_PURPLE}║{Colors.NC}")
+    print(f"{Colors.NEON_PURPLE}╠{'═' * 52}╣{Colors.NC}")
+    print(f"{Colors.NEON_PURPLE}║{Colors.NC}  {Colors.NEON_YELLOW}Total probes:{Colors.NC} {len(probe.results):>4}         {Colors.NEON_GREEN}Hits:{Colors.NC} {len(working):>4}  {Colors.NEON_PURPLE}║{Colors.NC}")
+    print(f"{Colors.NEON_PURPLE}║{Colors.NC}  {Colors.NEON_ORANGE}Time elapsed:{Colors.NC} {elapsed:>6.1f}s      {Colors.NEON_RED}Blocked:{Colors.NC} {len(probe.results) - len(working):>4}  {Colors.NEON_PURPLE}║{Colors.NC}")
+    print(f"{Colors.NEON_PURPLE}{'═' * 52}{Colors.NC}")
 
-    out = f"zero_rated_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    with open(out, "w") as f:
-        json.dump({"hits": working, "all": probe.results}, f, indent=2)
-    txt = out.replace(".json", ".txt")
-    with open(txt, "w") as f:
-        for r in working:
-            f.write(
-                f"{r.get('target')} | {r['ip']}:{r['port']} | SNI={r['sni']} | "
-                f"Host={r['host']} | {r['payload']} | {r['status']} | "
-                f"AS{r['asn']} {r['org']} | {r['latency_ms']}ms | "
-                f"redir={r['redirect']} | billed={r['billed_delta']}\n"
-            )
-    print(f"saved {out} and {txt}")
-
+    if working:
+        print(f"\n{Colors.NEON_GREEN}{Colors.BOLD}TOP 25 ZERO-RATED HOSTS:{Colors.NC}")
+        print(f"{Colors.NEON_CYAN}{'─' * 50}{Colors.NC}")
+        for r in working[:25]:
+            print_result(r, True)
+        
+        # Save results
+        out = f"zero_rated_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(out, "w") as f:
+            json.dump({"hits": working, "all": probe.results}, f, indent=2)
+        txt = out.replace(".json", ".txt")
+        with open(txt, "w") as f:
+            for r in working:
+                f.write(
+                    f"{r.get('target')} | {r['ip']}:{r['port']} | SNI={r['sni']} | "
+                    f"Host={r['host']} | {r['payload']} | {r['status']} | "
+                    f"AS{r['asn']} {r['org']} | {r['latency_ms']}ms | "
+                    f"redir={r['redirect']} | billed={r['billed_delta']}\n"
+                )
+        print(f"\n{Colors.NEON_GREEN}[+] Saved: {out} and {txt}{Colors.NC}")
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\nInterrupted")
+        print(f"\n\n{Colors.NEON_YELLOW}[!] Interrupted by user{Colors.NC}")
+    except Exception as e:
+        print(f"\n{Colors.NEON_RED}[!] Error: {e}{Colors.NC}")
