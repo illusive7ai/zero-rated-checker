@@ -484,7 +484,7 @@ def browse_files(directory):
         return None
     
     print(f"\n{Colors.NEON_CYAN}╔{'═' * 48}╗{Colors.NC}")
-    print(f"{Colors.NEON_CYAN}║{Colors.NC} {Colors.NEON_BOLD}FILE BROWSER{Colors.NC} {' ' * 36}{Colors.NEON_CYAN}║{Colors.NC}")
+    print(f"{Colors.NEON_CYAN}║{Colors.NC} {Colors.BOLD}FILE BROWSER{Colors.NC} {' ' * 36}{Colors.NEON_CYAN}║{Colors.NC}")
     print(f"{Colors.NEON_CYAN}╠{'═' * 48}╣{Colors.NC}")
     for i, f in enumerate(txt_files):
         host_count = len(load_hosts(f))
@@ -600,7 +600,7 @@ def main():
     t0 = time.time()
     
     for i, h in enumerate(hosts, 1):
-        print(f"\n{Colors.NEON_YELLOW}[{i}/{len(hosts)}] {Colors.NEON_CYAN}{h}{Colors.NC}  {Colors.NEON_DIM}workers={probe.pool.workers}{Colors.NC}")
+        print(f"\n{Colors.NEON_YELLOW}[{i}/{len(hosts)}] {Colors.NEON_CYAN}{h}{Colors.NC}  {Colors.DIM}workers={probe.pool.workers}{Colors.NC}")
         recs = probe.matrix_for_host(h, bug_hosts=bugs)
         hits = [r for r in recs if r["zero_rated"]]
         
